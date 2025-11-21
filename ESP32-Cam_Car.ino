@@ -138,7 +138,7 @@ void setup() {
     bool backward = server.arg("backward") == "true";
     bool left = server.arg("left") == "true";
     bool right = server.arg("right") == "true";
-    int speed = server.arg("speed").toInt();
+    int speedVal = server.arg("speed").toInt();
 
     // 更新時間戳記
     lastCommandTime = millis();
@@ -161,7 +161,7 @@ void setup() {
     if (right) Serial.print("右轉 ");
     if (!forward && !backward && !left && !right) Serial.print("停止 ");
     Serial.print(" 速度：");
-    Serial.println(speed);
+    Serial.println(speedVal);
 
 
 
