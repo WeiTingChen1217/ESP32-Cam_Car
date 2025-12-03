@@ -8,7 +8,7 @@ WebServer server(80);
 
 
 
-uint8_t speedVal = 200; // 初始速度（0~255）
+uint8_t speedVal = 60; // 初始速度（0~127）
 
 // HTML 控制頁面（含滑桿）
 const char* htmlPage = R"rawliteral(
@@ -47,7 +47,7 @@ const char* htmlPage = R"rawliteral(
     <button id="forward">Up</button>
     <button id="backward">Down</button>
     <label>speed:
-      <input type="range" id="speed" min="0" max="255" value="200">
+      <input type="range" id="speed" min="0" max="127" value="60">
     </label>
   </div>
   <div class="row">
@@ -97,34 +97,53 @@ const char* htmlPage = R"rawliteral(
 </html>
 )rawliteral";
 
-// 馬達A（驅動輪）
-#define A_IN1 12
-#define A_IN2 13
-#define A_ENA 14  // PWM 控速
+void setMotor0(int speed) {
+  if (speed >= 0) {
+    Serial.write(0x06); // Motor0 forward
+    Serial.write(speed > 127 ? 127 : speed);
+  } else {
+    Serial.write(0x07); // Motor0 reverse
+    Serial.write((-speed) > 127 ? 127 : -speed);
+  }
+}
 
-// 馬達B（方向輪）
-#define B_IN1 15
-#define B_IN2 2
+void setMotor1(int speed) {
+  if (speed >= 0) {
+    Serial.write(0x08); // Motor1 forward
+    Serial.write(speed > 127 ? 127 : speed);
+  } else {
+    Serial.write(0x09); // Motor1 reverse
+    Serial.write((-speed) > 127 ? 127 : -speed);
+  }
+}
+
+void stopMotors() {
+  setMotor0(0);
+  setMotor1(0);
+}
+
 
 unsigned long lastCommandTime = 0;
 bool isMoving = false;
+// 全域變數：記錄上一次狀態
+bool lastForward = false;
+bool lastBackward = false;
+bool lastLeft = false;
+bool lastRight = false;
+int lastSpeed = 0;
+
 
 void setup() {
-  Serial.begin(115200);
-
-  // 馬達腳位初始化
-  pinMode(A_IN1, OUTPUT);
-  pinMode(A_IN2, OUTPUT);
-  pinMode(B_IN1, OUTPUT);
-  pinMode(B_IN2, OUTPUT);
-  ledcSetup(0, 5000, 8); // 通道0, 頻率5kHz, 解析度8bit
-  ledcAttachPin(A_ENA, 0);
-
+  Serial.begin(9600);
 
   // 啟動 WiFi 熱點
   WiFi.softAP(ssid, password);
   Serial.println(WiFi.softAPIP());
 
+  // 初始化 qik
+  Serial.write(0xAA); // 起始位元
+  Serial.write(0x0A); // 裝置位址 (預設)
+  
   // 控制頁面
   server.on("/", []() {
     server.send(200, "text/html", htmlPage);
@@ -151,7 +170,8 @@ void setup() {
       isMoving = false;
       // 停止馬達...
     }
-  
+
+#if 0  
     Serial.print("時間：");
     Serial.print(lastCommandTime);
     Serial.print(" 指令：");
@@ -162,35 +182,39 @@ void setup() {
     if (!forward && !backward && !left && !right) Serial.print("停止 ");
     Serial.print(" 速度：");
     Serial.println(speedVal);
+#endif
+
+    // 判斷是否有變化
+    if (forward != lastForward || backward != lastBackward || 
+        left != lastLeft || right != lastRight || 
+        speedVal != lastSpeed) {
+  
+      // 更新狀態
+      lastForward = forward;
+      lastBackward = backward;
+      lastLeft = left;
+      lastRight = right;
+      lastSpeed = speedVal;
 
 
 
-
-    // 馬達A 控制
-    if (forward) {
-      digitalWrite(A_IN1, HIGH);
-      digitalWrite(A_IN2, LOW);
-      ledcWrite(0, speedVal);
-    } else if (backward) {
-      digitalWrite(A_IN1, LOW);
-      digitalWrite(A_IN2, HIGH);
-      ledcWrite(0, speedVal);
-    } else {
-      digitalWrite(A_IN1, LOW);
-      digitalWrite(A_IN2, LOW);
-      ledcWrite(0, 0);
-    }
-
-    // 馬達B 控制
-    if (left) {
-      digitalWrite(B_IN1, HIGH);
-      digitalWrite(B_IN2, LOW);
-    } else if (right) {
-      digitalWrite(B_IN1, LOW);
-      digitalWrite(B_IN2, HIGH);
-    } else {
-      digitalWrite(B_IN1, LOW);
-      digitalWrite(B_IN2, LOW);
+      // 馬達A 控制
+      if (forward) {
+        setMotor0(speedVal); // 馬達A 前進
+      } else if (backward) {
+        setMotor0(-speedVal); // 馬達A 後退
+      } else {
+        setMotor0(0);
+      }
+  
+      // 馬達B 控制
+      if (left) {
+        setMotor1(-speedVal); // 馬達B 左轉
+      } else if (right) {
+        setMotor1(speedVal);  // 馬達B 右轉
+      } else {
+        setMotor1(0);
+      }
     }
 
     server.send(200, "text/plain", "OK");
@@ -207,12 +231,6 @@ void loop() {
   if (isMoving && millis() - lastCommandTime > 300) {
     isMoving = false;
     // 停止馬達
-    digitalWrite(A_IN1, LOW);
-    digitalWrite(A_IN2, LOW);
-    ledcWrite(0, 0);
-    digitalWrite(B_IN1, LOW);
-    digitalWrite(B_IN2, LOW);
-    Serial.println("⚠️ 指令逾時，自動停止");
+    stopMotors();
   }
-
 }
